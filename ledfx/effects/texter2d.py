@@ -37,6 +37,7 @@ RESIZE_METHOD_MAPPING = {
 # all other are copy of wave
 TEXT_EFFECT_MAPPING = {
     "Side Scroll": {"init": "side_scroll_init", "func": "side_scroll_func"},
+    "Side Scroll Reverse": {"init": "side_scroll_reverse_init", "func": "side_scroll_reverse_func"},
     "Spokes": {"init": "spokes_init", "func": "spokes_func"},
     "Carousel": {"init": "carousel_init", "func": "carousel_func"},
     "Wave": {"init": "wave_init", "func": "wave_func"},
@@ -304,6 +305,65 @@ class Texter2d(Twod, GradientEffect):
                 )
 
         # _LOGGER.info(f"{self.sentence.wordblocks[0].pose.y:3.3f})")
+
+    ############################################################################
+    # side_scroll_reverse
+    ############################################################################
+
+    def side_scroll_reverse_init(self):
+        # first we need to set every word to be in a position off screen
+        # each word will be offset by the word before and a space
+        # first we need the first word width in screen units
+
+        self.base_speed = self.speed_option_1
+
+        if self.base_speed != 0:
+            _LOGGER.info(f"offset = 1")
+
+            offset = -1
+        else:
+            _LOGGER.info(f"else")
+            # we want to center the text, so we need to know the overall sentence size
+            # we can then calculate the offset to center the text
+            sentence_width = 0
+            for idx, word in enumerate(self.sentence.wordblocks):
+                sentence_width += word.w_width
+                sentence_width += self.sentence.space_block.w_width
+            # remove the trailing space implication
+            sentence_width -= self.sentence.space_block.w_width
+            offset = -sentence_width / 2
+
+        for idx, word in enumerate(self.sentence.wordblocks):
+            offset -= word.w_width / 2
+
+            word.pose.set_vectors(offset, 0, 1, 1, 10000)
+            word.pose.d_pos = (-self.base_speed, 0.5)
+
+            _LOGGER.info(f"{offset} offset {self.base_speed} self.base_speed {word.pose} word.pose.d_pos")
+
+            offset -= word.w_width / 2
+            offset -= self.sentence.space_block.w_width
+
+    def side_scroll_reverse_func(self):
+        if (
+              self.sentence.wordblocks[-1].pose.x
+            - self.sentence.wordblocks[-1].w_width / 2
+            > 1
+        ):
+            self.side_scroll_reverse_init()
+            # call the set_fallback function of the parent virtual as we completed a cycle
+            self._virtual.fallback_fire_set()
+        for word in self.sentence.wordblocks:
+            if self.option_1 and self.base_speed != 0:
+                word.pose.d_pos = (
+                    self.base_speed
+                    + (self.lows_impulse * self.multiplier * self.base_speed),
+                    0.5,
+                )
+            if self.alpha:
+                word.pose.alpha = min(
+                    1.0, 0.1 + self.lows_impulse * self.multiplier
+                )
 
     ############################################################################
     # carousel

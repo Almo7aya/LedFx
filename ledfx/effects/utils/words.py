@@ -28,6 +28,13 @@ FONT_MAPPINGS = {
         LEDFX_ASSETS_PATH, "fonts", "PressStart2P.ttf"
     ),
     "Blade-5x8": os.path.join(LEDFX_ASSETS_PATH, "fonts", "Blade-5x8.ttf"),
+    "Rubik-Regular": os.path.join(LEDFX_ASSETS_PATH, "fonts", "Rubik-Regular.ttf"),
+    "NotoKufiArabic": os.path.join(LEDFX_ASSETS_PATH, "fonts", "NotoKufiArabic.ttf"),
+    "MatrixtypeDisplay": os.path.join(LEDFX_ASSETS_PATH, "fonts", "MatrixtypeDisplay.ttf"),
+    "Matrixtype": os.path.join(LEDFX_ASSETS_PATH, "fonts", "Matrixtype.ttf"),
+    "Sorena-Normal": os.path.join(LEDFX_ASSETS_PATH, "fonts", "Sorena-Normal.ttf"),
+    "Sorena-Pixel": os.path.join(LEDFX_ASSETS_PATH, "fonts", "Sorena-Pixel.ttf"),
+    "unixel-Regular": os.path.join(LEDFX_ASSETS_PATH, "fonts", "unixel-Regular.ttf"),
 }
 
 
