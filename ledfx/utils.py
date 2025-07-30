@@ -34,6 +34,7 @@ from platform import (
 from subprocess import PIPE, Popen
 from typing import Callable
 
+import netifaces
 import numpy as np
 import PIL.Image as Image
 import PIL.ImageFont as ImageFont
@@ -41,6 +42,7 @@ import requests
 import voluptuous as vol
 from dotenv import load_dotenv
 
+from ledfx.color import LEDFX_GRADIENTS
 from ledfx.config import save_config
 from ledfx.consts import LEDFX_ASSETS_PATH, PROJECT_VERSION
 
@@ -220,6 +222,34 @@ def get_local_ip():
             return "127.0.0.1"
     finally:
         sock.close()
+
+
+def check_if_ip_is_broadcast(thisip):
+    """
+    Check if provided IP is the broadcast address of
+    one of the network interfaces
+
+    Returns:
+        True if IP is a broadcast address, False otherwise.
+
+    """
+    try:
+        # iterate over all interfaces
+        for iface in netifaces.interfaces():
+            iface = netifaces.ifaddresses(iface)
+            # iterate over all ipv4 address (if available) for this interface
+            if netifaces.AF_INET in iface:
+                for ip in iface[netifaces.AF_INET]:
+                    # check if a broadcast address is set and compare
+                    if "broadcast" in ip and ip["broadcast"] == thisip:
+                        return True
+
+        # no matching broadcast address found
+        return False
+
+    except OSError as e:
+        _LOGGER.warning(f"Unable to check if ip is a broadcast address: {e}")
+        return False
 
 
 def async_fire_and_return(coro, callback, timeout=10):
@@ -712,7 +742,10 @@ def generate_id(name):
             str: The converted ID.
     """
     part1 = re.sub("[^a-zA-Z0-9]", " ", name).lower()
-    return re.sub(" +", " ", part1).strip().replace(" ", "-")
+    result = re.sub(" +", " ", part1).strip().replace(" ", "-")
+    if result == "":
+        result = "default"
+    return result
 
 
 def generate_title(id):
@@ -1048,7 +1081,10 @@ class RegistryLoader:
         found = self.discover_modules(package)
         _LOGGER.debug(f"Importing {found} from {package}")
         for name in found:
-            importlib.import_module(name)
+            try:
+                importlib.import_module(name)
+            except ModuleNotFoundError as e:
+                _LOGGER.warning(f"Failed to import {name} from {package}: {e}")
 
     def discover_modules(self, package):
         """Discovers all modules in the package"""
@@ -1432,7 +1468,8 @@ def open_gif(gif_path):
 
     Args:
         gif_path: str
-            path to gif file or url
+            path to gif, webp, png or jpg file or url
+            Can handle any image source that PIL is capable of, not just gif
     Returns:
         Image: PIL Image object or None if failed to open
     """
@@ -1441,13 +1478,17 @@ def open_gif(gif_path):
         if gif_path.startswith("http://") or gif_path.startswith("https://"):
             with urllib.request.urlopen(gif_path) as url:
                 gif = Image.open(url)
-                _LOGGER.debug("Remote GIF downloaded and opened.")
-                return gif
-
+                _LOGGER.debug("Remote image source downloaded and opened.")
         else:
             gif = Image.open(gif_path)  # Directly open for local files
-            _LOGGER.debug("Local GIF opened.")
-            return gif
+            _LOGGER.debug("Local image source opened.")
+
+        # protect against single frame image like png, jpg
+        if not hasattr(gif, "n_frames"):
+            gif.n_frames = 1
+
+        return gif
+
     except Exception as e:
         _LOGGER.warning(f"Failed to open gif : {gif_path} : {e}")
         return None
@@ -1530,7 +1571,18 @@ def get_font(font_list, size):
 
 
 def generate_default_config(ledfx_effects, effect_id):
-    return ledfx_effects.get_class(effect_id).get_combined_default_schema()
+    """
+    Generate config out of the schema for an effect to use as a defualt
+
+    Any manipulations must be made in here, such as expanding gradient strings to fully defined gradients
+    """
+    config = ledfx_effects.get_class(effect_id).get_combined_default_schema()
+    gradient = config.get("gradient", None)
+    gradient_str = LEDFX_GRADIENTS.get(gradient, None)
+    if gradient_str:
+        config["gradient"] = gradient_str
+        config["gradient_name"] = gradient
+    return config
 
 
 def inject_missing_default_keys(presets, defaults):
@@ -1595,33 +1647,52 @@ def log_packages():
         _LOGGER.debug(f"{dist.metadata['name']} : {dist.version}")
 
 
-def is_package_installed(package_name):
+def is_package_installed(package_name: str, import_name: str = None) -> bool:
     """
-    Check if a Python package is installed.
+    Check if a package is available in the environment.
 
     Args:
-        package_name (str): The name of the package to check.
+        package_name (str): The name used for pip installation (e.g., 'python-mbedtls').
+        import_name (str): The actual importable module name (e.g., 'mbedtls').
 
     Returns:
-        bool: True if the package is installed, False otherwise.
+        bool: True if the package is importable, False otherwise.
     """
-    try:
-        metadata.distribution(package_name)
-        return True
-    except ModuleNotFoundError:
+    import_name = import_name or package_name
+
+    # Try to get import spec
+    spec = importlib.util.find_spec(import_name)
+    if spec is None:
+        _LOGGER.info(
+            f"Optional dependency '{package_name}' not found (import name: '{import_name}')."
+        )
         return False
+
+    # Try to get version info
+    try:
+        version = metadata.version(package_name)
+    except metadata.PackageNotFoundError:
+        version = "unknown"
+
+    path = spec.origin or "unknown"
+
+    _LOGGER.info(f"Optional dependency '{package_name}' is installed:")
+    _LOGGER.info(f"  ├── Version: {version}")
+    _LOGGER.info(f"  └── Path:    {path}")
+    return True
 
 
 def check_optional_dependencies():
     """
-    Check for optional dependencies and log if they are not installed.
+    Check for optional dependencies and log their availability, versions, and paths.
     """
-    dependencies = ["psutil", "python-mbedtls"]
-    for dependency in dependencies:
-        if is_package_installed(dependency):
-            _LOGGER.info(f"Optional dependency '{dependency}' installed.")
-        else:
-            _LOGGER.info(f"Optional dependency '{dependency}' not installed.")
+    OPTIONAL_DEPENDENCIES = {
+        "psutil": "psutil",
+        "python-mbedtls": "mbedtls",
+        # Add more if needed
+    }
+    for package_name, import_name in OPTIONAL_DEPENDENCIES.items():
+        is_package_installed(package_name, import_name)
 
 
 class PerformanceAnalysis:
@@ -1897,7 +1968,11 @@ def resize_pixels(pixels, old_shape, new_shape):
 
 
 def shape_to_fit_len(max_len, shape, pixels_len):
-    """_summary_
+    """Converts the shape of a visualisation to obey constraints
+       The max_len pixels which is a system variable a user can change
+       Additionally a max dimension of 64 in rows or columns is enforced
+       As the shape has already been reduced to max pixels, both CANNOT
+       be greate than 64
 
     Args:
         max_len : The maximum number of pixels allowed in the final visualisation
@@ -1916,11 +1991,22 @@ def shape_to_fit_len(max_len, shape, pixels_len):
         new_rows = shape[0] / reduction_ratio
         new_cols = shape[1] / reduction_ratio
 
+        # protect against extreme shapes
+        # see function description for magic number 64
+        if new_rows > 64:
+            reduction_ratio = 64 / new_rows
+            new_rows = 64
+            new_cols = new_cols * reduction_ratio
+        elif new_cols > 64:
+            reduction_ratio = 64 / new_cols
+            new_cols = 64
+            new_rows = new_rows * reduction_ratio
+
         # protect from less than 1 values
         if new_rows < 1.0:
-            new_shape = (1, max_len)
+            new_shape = (1, new_cols)
         elif new_cols < 1.0:
-            new_shape = (max_len, 1)
+            new_shape = (new_rows, 1)
         else:
             new_shape = (
                 int(new_rows),
@@ -1959,3 +2045,150 @@ class Teleplot:
             Teleplot.sock.sendto(string.encode(), ("127.0.0.1", 47269))
         except Exception as e:
             _LOGGER.error(f"Failed to send data to teleplot: {e}")
+
+
+def aggressive_top_end_bias(x, boost):
+    """
+    Apply an aggressive top-end bias to input values.
+
+    This function blends between a linear curve and a non-linear curve that
+    pulls higher values closer to 1.0 as boost increases.
+
+    - At boost = 0: the output is equal to the input (linear).
+    - At boost = 1: higher input values are strongly biased toward 1.0.
+
+    The transformation is applied element-wise if `x` is a NumPy array.
+
+    Parameters:
+        x (float or np.ndarray): Input value(s) between 0 and 1.
+        boost (float): Boost factor between 0 and 1.
+
+    Returns:
+        float or np.ndarray: Transformed value(s), same shape and type as `x`.
+    """
+
+    aggressive_curve = 1 - (1 - x) ** 4  # Adjust power for curve steepness
+    return (1 - boost) * x + boost * aggressive_curve
+
+
+def get_sorted_physical_ips() -> list[str]:
+    """
+    Returns a sorted list of local non-loopback IPv4 addresses from physical interfaces.
+    Sorts by:
+        1. Primary outbound IP (used for external connections)
+        2. Interface activity (bytes sent + received)
+    Logs interface decisions and IPs for triage.
+    """
+    try:
+        import psutil
+
+        ip_usage_list = []
+
+        # Heuristics for physical interfaces
+        physical_keywords = [
+            "eth",
+            "en",
+            "ens",
+            "eno",
+            "enp",
+            "wlan",
+            "wl",  # Linux
+            "Wi-Fi",
+            "Ethernet",
+            "Local Area",  # Windows
+            "en",
+            "bridge",  # macOS
+        ]
+
+        _LOGGER.info("Starting local IP discovery")
+
+        stats = psutil.net_if_stats()
+        counters = psutil.net_io_counters(pernic=True)
+
+        for iface_name, iface_addrs in psutil.net_if_addrs().items():
+            if not any(keyword in iface_name for keyword in physical_keywords):
+                _LOGGER.info(f"Skipping non-physical interface: {iface_name}")
+                continue
+            if iface_name not in stats or not stats[iface_name].isup:
+                _LOGGER.info(f"Skipping inactive interface: {iface_name}")
+                continue
+
+            _LOGGER.info(f"Inspecting interface: {iface_name}")
+            for addr in iface_addrs:
+                if addr.family == socket.AF_INET:
+                    if addr.address.startswith("127."):
+                        _LOGGER.info(
+                            f"Skipping loopback address on {iface_name}: {addr.address}"
+                        )
+                        continue
+                    counter = counters.get(iface_name)
+                    usage = (
+                        (counter.bytes_sent + counter.bytes_recv)
+                        if counter
+                        else 0
+                    )
+                    _LOGGER.info(
+                        f"Discovered IP {addr.address} on {iface_name} with usage {usage}"
+                    )
+                    ip_usage_list.append((usage, addr.address))
+    except Exception as e:
+        _LOGGER.warning(f"Failed to get network interface info: {e}")
+        primary_ip = get_primary_ip()
+        if primary_ip:
+            return [primary_ip]
+        else:
+            _LOGGER.warning(
+                "No network interfaces found and primary IP detection failed."
+            )
+            return []
+
+    ip_usage_list.sort(reverse=True)
+    sorted_ips = [ip for _, ip in ip_usage_list]
+
+    # Try to determine the primary IP based on routing
+    primary_ip = get_primary_ip()
+
+    if primary_ip is not None:
+        if primary_ip in sorted_ips:
+            sorted_ips.remove(primary_ip)
+        sorted_ips.insert(0, primary_ip)
+
+    _LOGGER.info(f"Final sorted IP list: {sorted_ips}")
+    return sorted_ips
+
+
+def get_primary_ip() -> str:
+    """
+    Returns the primary local IPv4 address used for outbound traffic.
+    This works across Windows, macOS, Linux, and Android (Termux, etc.).
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(1.0)
+        s.connect(
+            ("8.8.8.8", 80)
+        )  # Doesn't send packets; just gets routing info
+        ip = s.getsockname()[0]
+        s.close()
+        _LOGGER.info(f"Primary outbound IP detected: {ip}")
+        return ip
+    except Exception as e:
+        _LOGGER.warning(f"Primary IP detection via socket failed: {e}")
+        return None  # no fallback
+
+
+def nonlinear_log(x, power=3):
+    """
+    Apply a nonlinear logarithmic transformation to the input value(s).
+    This function applies a transformation that is similar to a logarithm but
+    allows for a customizable power to control the steepness of the curve.
+    - At power = 1: the output is equal to the input (linear).
+    - At power > 1: higher input values are pulled closer to 1.0.
+    The transformation is applied element-wise if `x` is a NumPy array.
+    Parameters:
+        x (float or np.ndarray): Input value(s) between 0 and 1.
+        power (float): Power factor to control the steepness of the curve.
+    Returns:
+        float or np.ndarray: Transformed value(s), same shape and type as `x`.
+    """
+    return np.sign(x) * (abs(x) ** power)

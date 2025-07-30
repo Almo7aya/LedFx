@@ -1,4 +1,4 @@
-# Troubleshooting
+# Misc Troubleshooting
 
 ## Firmware Issues
 
@@ -61,25 +61,25 @@ Launch ledfx and clear all active effects from config.json
 > ledfx --clear-effects
 > ```
 
-If the issue is a poisoned configration of a specific effect, using this
+If the issue is a poisoned configuration of a specific effect, using this
 launch option all active effects are cleared leaving all virtuals and
 other configurations untouched.
 
 The effect configuration will still be present in your config, and if
 the specific effect is re-enabled, the crash will likely express again.
 
-However with this method, you can recover and continue using ledfx with
+However with this method, you can recover and continue using LedFx with
 the other effects, and all your existing configuration.
 
 You can also isolate which effect is poisoned by re-enabling them one by
 one, until the crash expresses.
 
-Then pass your config.json to the ledfx team for further investigation
+Then pass your config.json to the LedFx team for further investigation
 via #help_and_support on Discord.
 
 ### Backup and create clean config
 
-Launch ledfx, backup and then create a clean config.json
+Launch LedFx, backup and then create a clean config.json
 
 > ``` console
 > ledfx --clear-config
@@ -157,25 +157,19 @@ does support up to 4 outgoing devices streams.
 Alternatively:
 <https://www.audioanimals.co.uk/news/reviews/v-player-2-review-free-standalone-vst-host>
 
-## Networking Improvements
+## Audio Levels
 
-**DPC Latency**
+Use Vumeter to check raw audio input levels
 
-LedFx is *extremely* latency sensitive and will expose inherit
-weaknesses in WiFi. To minimize this, we reccomend:
+See the [Dummy Vumeter How-To](/howto/dummy_vumeter.md) for more details.
 
-1.  Disabling WiFi Sleep Mode on WLED.
-2.  Minimize WiFi activity on your network - using ethernet where
-    possible.
-3.  Ensure router appropriate for number of devices and amount of
-    traffic.
-4.  Attempting to ensure your WiFi access point is located in an
-    appropriate area, and is using an appropriate WiFi channel.
+## Frequency Response
 
-**Access via LAN**
+Use a equalizer2d effect on a dummy matrix to investigate frequency response
 
-All current builds should be able to be accessed from LAN - please
-ensure that you allow traffic from port 8888 from the host machine.
+See the [Dummy Matrix How-To](/howto/dummy_matrix.md) for more details.
+
+Search on youtube or similar for a frequency sweep audio test.
 
 ## Need more help?
 

@@ -41,12 +41,14 @@ from ledfx.integrations import Integrations
 from ledfx.mdns_manager import ZeroConfRunner
 from ledfx.presets import ledfx_presets
 from ledfx.scenes import Scenes
+from ledfx.tools.ts_generator import generate_typescript_types
 from ledfx.utils import (
     RollingQueueHandler,
     UpdateChecker,
     UserDefaultCollection,
     async_fire_and_forget,
     currently_frozen,
+    get_sorted_physical_ips,
     pixels_boost,
     resize_pixels,
     shape_to_fit_len,
@@ -77,6 +79,7 @@ class LedFxCore:
         port_s=None,
         icon=None,
         ci_testing=False,
+        generate_typescript_types=False,
         clear_config=False,
         clear_effects=False,
         offline_mode=False,
@@ -90,6 +93,7 @@ class LedFxCore:
             create_backup(config_dir, "DELETE")
 
         self.config = load_config(config_dir)
+        self.config["hosts"] = get_sorted_physical_ips()
 
         if clear_effects:
             _LOGGER.warning("Clearing active effects.")
@@ -100,6 +104,7 @@ class LedFxCore:
         self.port = port if port else self.config["port"]
         self.port_s = port_s if port_s else self.config["port_s"]
         self.ci_testing = ci_testing
+        self.generate_typescript_types = generate_typescript_types
         self.offline_mode = offline_mode
         if sys.platform == "win32":
             self.loop = asyncio.ProactorEventLoop()
@@ -425,9 +430,49 @@ class LedFxCore:
         if self.ci_testing:
             await asyncio.sleep(5)
             self.stop(5)
+        if self.generate_typescript_types:
+            _LOGGER.info("Generating TypeScript types via CLI flag...")
+            current_script_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.abspath(
+                os.path.join(current_script_dir, "..")
+            )
+            output_file_name = "ledfx_types.ts"
+            ts_code_string = generate_typescript_types()
+
+            try:
+                os.makedirs(project_root, exist_ok=True)
+                output_file_path = os.path.join(project_root, output_file_name)
+
+                _LOGGER.info(
+                    f"Attempting to write TypeScript types to: {output_file_path}"
+                )
+                with open(output_file_path, "w", encoding="utf-8") as f:
+                    f.write(ts_code_string)
+                _LOGGER.info(
+                    f"Successfully wrote TypeScript types to {output_file_path}"
+                )
+
+            except OSError as e:
+                _LOGGER.error(f"IOError writing TypeScript types to file: {e}")
+            except Exception as e:
+                _LOGGER.error(
+                    f"Unexpected error writing TypeScript types to file: {e}"
+                )
+
+            self.stop(5)
 
         if not self.offline_mode:
             self.check_and_notify_updates()
+
+        if self.config["startup_scene_id"] != "":
+            if self.scenes.activate(self.config["startup_scene_id"]):
+                _LOGGER.info(
+                    f"startup_scene_id; {self.config['startup_scene_id']} activated."
+                )
+            else:
+                _LOGGER.warning(
+                    f"startup_scene_id: {self.config['startup_scene_id']} not found."
+                )
 
         if pause_all:
             # pause at the virtuals level

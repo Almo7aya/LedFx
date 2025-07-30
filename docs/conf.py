@@ -7,10 +7,15 @@
 
 # -- Path setup --------------------------------------------------------------
 
+import datetime
 import os
 import sys
 
 import sphinx_rtd_theme
+
+# If extensions (or modules to document with autodoc) are in another directory,
+# add these directories to sys.path here. If the directory is relative to the
+# documentation root, use os.path.abspath to make it absolute, like shown here.
 
 sys.path.insert(0, os.path.abspath(".."))
 
@@ -21,7 +26,7 @@ from ledfx.consts import PROJECT_AUTHOR, PROJECT_NAME, PROJECT_VERSION
 
 PROJECT_PACKAGE_NAME = PROJECT_NAME
 PROJECT_AUTHOR = PROJECT_AUTHOR
-PROJECT_COPYRIGHT = f" 2018-2023, {PROJECT_AUTHOR}"
+PROJECT_COPYRIGHT = f" 2018-{datetime.datetime.now().year}, {PROJECT_AUTHOR}"
 PROJECT_SHORT_DESCRIPTION = "LedFx is an open-source effect controller"
 PROJECT_LONG_DESCRIPTION = (
     "LedFx is an open-source effect controller "
@@ -57,6 +62,7 @@ extensions = [
     "sphinx_toolbox.collapse",
     "sphinx_copybutton",
     "myst_parser",
+    "sphinxcontrib.mermaid",
 ]
 
 # The suffix(es) of source filenames.
@@ -236,6 +242,7 @@ myst_enable_extensions = [
     "linkify",
     "substitution",
     "tasklist",
+    "colon_fence",
 ]
 
 myst_heading_anchors = 3

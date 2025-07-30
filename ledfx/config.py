@@ -45,6 +45,7 @@ CORE_CONFIG_KEYS_NO_RESTART = [
     "visualisation_fps",
     "flush_on_deactivate",
     "ui_brightness_boost",
+    "startup_scene_id",
 ]
 # Collection of keys that are used for visualisation configuration - used to check if we need to restart the visualisation event listeners
 VISUALISATION_CONFIG_KEYS = [
@@ -106,6 +107,7 @@ WLED_CONFIG_SCHEMA = vol.Schema(
 CORE_CONFIG_SCHEMA = vol.Schema(
     {
         vol.Optional("host", default="0.0.0.0"): str,
+        vol.Optional("hosts", default=[]): list,
         vol.Optional("port", default=8888): int,
         vol.Optional("port_s", default=8443): int,
         vol.Optional("dev_mode", default=False): bool,
@@ -125,7 +127,7 @@ CORE_CONFIG_SCHEMA = vol.Schema(
             int, vol.Range(1, 60)
         ),
         vol.Optional("visualisation_maxlen", default=81): vol.All(
-            int, vol.Range(5, 4096)
+            int, vol.Range(5, 65536)
         ),
         vol.Optional(
             "global_transitions",
@@ -147,6 +149,7 @@ CORE_CONFIG_SCHEMA = vol.Schema(
         vol.Optional("ui_brightness_boost", default=0.0): vol.All(
             vol.Coerce(float), vol.Range(0, 1.0)
         ),
+        vol.Optional("startup_scene_id", default=""): str,
     },
     extra=vol.ALLOW_EXTRA,
 )
@@ -588,6 +591,13 @@ def migrate_config(old_config):
                 "FXMatrix devices are no longer supported. Add it as plain UDP or WLED."
             )
             continue
+        if (
+            device["type"].lower() == "artnet"
+            and "device_repeat" in device["config"]
+        ):
+            device["config"]["pixels_per_device"] = device["config"].pop(
+                "device_repeat"
+            )
         device.pop("effect", None)
         new_config["devices"].append(device)
 

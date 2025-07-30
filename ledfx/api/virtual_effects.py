@@ -7,7 +7,7 @@ from aiohttp import web
 
 from ledfx.api import RestEndpoint
 from ledfx.config import save_config
-from ledfx.virtuals import update_effect_config
+from ledfx.effects import DummyEffect
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,14 +59,20 @@ class EffectsEndpoint(RestEndpoint):
                 f"Virtual with ID {virtual_id} not found"
             )
 
-        # Get the active effect
-        response = {"effect": {}}
-        if virtual.active_effect:
-            effect_response = {}
-            effect_response["config"] = virtual.active_effect.config
-            effect_response["name"] = virtual.active_effect.name
-            effect_response["type"] = virtual.active_effect.type
-            response = {"effect": effect_response}
+        # Protect from DummyEffect
+        if virtual.active_effect and not isinstance(
+            virtual.active_effect, DummyEffect
+        ):
+            response = {
+                "effect": {
+                    "config": virtual.active_effect.config,
+                    "name": virtual.active_effect.name,
+                    "type": virtual.active_effect.type,
+                }
+            }
+        else:
+            response = {"effect": {}}
+
         return await self.bare_request_success(response)
 
     async def put(self, virtual_id, request) -> web.Response:
@@ -159,7 +165,11 @@ class EffectsEndpoint(RestEndpoint):
                 # substring search to match any key of color
                 # this handles special cases where we want to update an effect and also trigger
                 # a transition by creating a new effect.
-                if next(
+                # add color_blend and set to False in your effect to prevent effect recreation on color change
+                # leave as a switch or add to HIDDEN_KEYS
+                if virtual.active_effect.config.get(
+                    "color_blend", True
+                ) and next(
                     (key for key in effect_config.keys() if "color" in key),
                     None,
                 ):
@@ -188,7 +198,7 @@ class EffectsEndpoint(RestEndpoint):
             _LOGGER.warning(error_message)
             return await self.internal_error(error_message, "warning")
 
-        update_effect_config(self._ledfx.config, virtual_id, effect)
+        virtual.update_effect_config(effect)
 
         save_config(
             config=self._ledfx.config,
@@ -232,19 +242,7 @@ class EffectsEndpoint(RestEndpoint):
 
         effect_config = data.get("config")
         if effect_config is None:
-            effect_config = {}
-            # if we already have this effect in effects then load it up
-            virt_cfg = next(
-                (
-                    item
-                    for item in self._ledfx.config["virtuals"]
-                    if item["id"] == virtual_id
-                ),
-                None,
-            )
-            if virt_cfg and "effects" in virt_cfg:
-                if effect_type in virt_cfg["effects"]:
-                    effect_config = virt_cfg["effects"][effect_type]["config"]
+            effect_config = virtual.get_effects_config(effect_type)
         elif effect_config == "RANDOMIZE":
             # Parse and break down schema for effect, in order to generate
             # acceptable random values
@@ -307,7 +305,7 @@ class EffectsEndpoint(RestEndpoint):
             _LOGGER.warning(error_message)
             return await self.internal_error(error_message, "error")
 
-        update_effect_config(self._ledfx.config, virtual_id, effect)
+        virtual.update_effect_config(effect)
 
         save_config(
             config=self._ledfx.config,
@@ -340,11 +338,7 @@ class EffectsEndpoint(RestEndpoint):
 
         virtual.clear_effect()
 
-        for virtual_cfg in self._ledfx.config["virtuals"]:
-            if virtual_cfg["id"] == virtual_id:
-                if "effect" in virtual_cfg:
-                    del virtual_cfg["effect"]
-                    break
+        virtual.virtual_cfg.pop("effect", None)
 
         save_config(
             config=self._ledfx.config,

@@ -6,7 +6,9 @@
 
    /installing
    /launch
-   /developer
+   /developer/developer
+   /developer/architecture
+   /README
 
 .. toctree::
    :maxdepth: 2
@@ -24,25 +26,37 @@
    /devices/govee
 
 .. toctree::
+   :maxdepth: 2
+   :caption: Effects
+
+   /effects/simple/filter
+   /effects/matrix/radial
+
+.. toctree::
    :maxdepth: 1
    :caption: How To
 
+   /howto/tips
    /howto/dummy_matrix
+   /howto/dummy_vumeter
    /howto/keybeat
    /howto/virtuals
    /howto/reorder
+   /howto/alpha
 
 .. toctree::
    :maxdepth: 2
    :caption: LedFx API
 
    /api
+   /websocket
 
 .. toctree::
    :maxdepth: 2
    :caption: Help
 
-   /trouble
+   /troubleshoot/trouble
+   /troubleshoot/network
    /howto/report
 
 License

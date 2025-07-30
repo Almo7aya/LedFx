@@ -1,11 +1,13 @@
 import logging
+import math
 
 import numpy as np
 import voluptuous as vol
 from stupidArtnet import StupidArtnet
 
 from ledfx.devices import NetworkedDevice
-from ledfx.utils import extract_uint8_seq
+from ledfx.devices.utils.rgbw_conversion import OutputMode, rgb_to_output_mode
+from ledfx.utils import check_if_ip_is_broadcast, extract_uint8_seq
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,15 +43,36 @@ class ArtNetDevice(NetworkedDevice):
                 default="",
             ): str,
             vol.Optional(
-                "device_repeat",
-                description="numer of pixels to consume per device and repeat pre and post ambles, 0 default will use all pixels in one instance",
+                "pixels_per_device",
+                description="Number of pixels to consume per device. Pre and post ambles are repeated per device. By default (0) all pixels will be used by one instance",
                 default=0,
             ): vol.All(int, vol.Range(min=0)),
+            vol.Optional(
+                "dmx_start_address",
+                description="The start address within the universe",
+                default=1,
+            ): vol.All(int, vol.Range(min=1, max=512)),
             vol.Optional(
                 "even_packet_size",
                 description="Whether to use even packet size",
                 default=True,
             ): bool,
+            vol.Optional(
+                "output_mode",
+                description="Output mode for RGB or RGBW data",
+                default=OutputMode.RGB,
+            ): vol.All(
+                str,
+                vol.In(
+                    [
+                        OutputMode.RGB,
+                        OutputMode.RGBW_NONE,
+                        OutputMode.RGBW_ACCURATE,
+                        OutputMode.RGBW_BRIGHTER,
+                    ]
+                ),
+            ),
+            vol.Optional("port", description="port", default=6454): int,
         }
     )
 
@@ -72,45 +95,57 @@ class ArtNetDevice(NetworkedDevice):
         self.post_amble = np.array(
             extract_uint8_seq(config.get("post_amble", "")), dtype=np.uint8
         )
-        self.device_repeat = config.get("device_repeat", 0)
+        self.pixels_per_device = config.get("pixels_per_device", 0)
+        # first byte in dmx is 1, but we are zero based
+        self.dmx_start_address = config.get("dmx_start_address", 1) - 1
 
-        # This assumes RGB - for RGBW devices this isn't gonna work.
-        # TODO: Fix this when/if we ever want to move to RGBW outputs for devices
-        # warning magic number 3 for RGB
+        self.output_mode = config.get("output_mode", OutputMode.RGB)
+        self.channels_per_pixel = (
+            3 if self.output_mode == OutputMode.RGB else 4
+        )
 
-        # treat a default value of zero in device_repeat as all pixels in one device
+        # treat a default value of zero in pixels_per_device as all pixels in one device
         # also protect against greater than pixel_count
-        if self.device_repeat == 0 or self.device_repeat > self.pixel_count:
-            self.device_repeat = self.pixel_count
+        if (
+            self.pixels_per_device == 0
+            or self.pixels_per_device > self.pixel_count
+        ):
+            self.pixels_per_device = self.pixel_count
 
         # if the user has not set enough pixels to fully fill the last device
         # it is modded away, we will not support partial devices, saves runtime
-        self.devices = self.pixel_count // self.device_repeat
-        self.data_max = self.devices * self.device_repeat
+        self.num_devices = self.pixel_count // self.pixels_per_device
+        self.data_max = self.num_devices * self.pixels_per_device
 
-        self.channel_count = (
+        total_pixels_per_device = (
             self.pre_amble.size
-            + (self.device_repeat * 3)
+            + (self.pixels_per_device * self.channels_per_pixel)
             + self.post_amble.size
-        ) * self.devices
+        )
+        self.channel_count = (
+            self.dmx_start_address + total_pixels_per_device * self.num_devices
+        )
 
         self.packet_size = self._config["packet_size"]
-        self.universe_count = (
-            self.channel_count + self.packet_size - 1
-        ) // self.packet_size
+        self.universe_count = math.ceil(self.channel_count / self.packet_size)
 
     def activate(self):
         if self._artnet:
             _LOGGER.warning(
                 f"Art-Net sender already started for device {self.config['name']}"
             )
+
+        # check if provided address is a broadcast address
+        broadcast = check_if_ip_is_broadcast(self._config["ip_address"])
+
         self._artnet = StupidArtnet(
             target_ip=self._config["ip_address"],
             universe=self._config["universe"],
             packet_size=self.packet_size,
             fps=self._config["refresh_rate"],
             even_packet_size=self._config["even_packet_size"],
-            broadcast=False,
+            broadcast=broadcast,
+            port=self._config["port"],
         )
         # Don't use start for stupidArtnet - we handle fps locally, and it spawns hundreds of threads
 
@@ -133,19 +168,26 @@ class ArtNetDevice(NetworkedDevice):
             if not self._artnet:
                 self.activate()
 
-            data = data.flatten()[: self.data_max * 3]
+            data = rgb_to_output_mode(data, self.output_mode)
+
+            data = data.flatten()[: self.data_max * self.channels_per_pixel]
 
             # pre allocate the space
             devices_data = np.empty(self.channel_count, dtype=np.uint8)
 
-            # Reshape the data into (self.devices, self.device_repeat * 3)
+            # Reshape the data into (self.num_devices, self.pixels_per_device * self.channels_per_pixel)
             reshaped_data = data.reshape(
-                (self.devices, self.device_repeat * 3)
+                (
+                    self.num_devices,
+                    self.pixels_per_device * self.channels_per_pixel,
+                )
             )
 
             # Create the pre_amble and post_amble arrays to match the device count
-            pre_amble_repeated = np.tile(self.pre_amble, (self.devices, 1))
-            post_amble_repeated = np.tile(self.post_amble, (self.devices, 1))
+            pre_amble_repeated = np.tile(self.pre_amble, (self.num_devices, 1))
+            post_amble_repeated = np.tile(
+                self.post_amble, (self.num_devices, 1)
+            )
 
             # Concatenate the pre_amble, reshaped data, and post_amble along the second axis
             full_device_data = np.concatenate(
@@ -153,7 +195,8 @@ class ArtNetDevice(NetworkedDevice):
                 axis=1,
             )
 
-            devices_data[:] = full_device_data.ravel()
+            devices_data[0 : self.dmx_start_address] = 0
+            devices_data[self.dmx_start_address :] = full_device_data.ravel()
 
             # TODO: Handle the data transformation outside of the loop and just use loop to set universe and send packets
 

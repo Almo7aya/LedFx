@@ -721,6 +721,45 @@ Clear effect of a virtual
 
 Extensible support for general tools towards ALL virtuals in one call
 
+**POST**
+
+Supports addition of oneshots to all virtuals.
+
+### oneshot
+
+Fill all active virtuals with a single color in a defined envelope of timing
+
+Intended to allow integration of instantaneous game effects over all active virtual
+
+Repeated oneshot to a virtual will add an extra oneshot if the previous ones have not finished
+
+- color: The color to which we wish to fill the virtual, any format supported, default is white
+- ramp: The time in ms over which to ramp the color from zero to full weight over the active  effect
+- hold: The time in ms to hold the color to full weight over the active effect
+- fade: The time in ms to fade the color from full weight to zero over the active effect
+- brightness: The brightness of the oneshot at the beginning. Defaults to 1.0 which is maximum brightness
+
+
+``` json
+{
+    "tool":"oneshot",
+    "color":"white",
+    "ramp":10,
+    "hold":200,
+    "fade":2000,
+    "brightness":1
+}
+```
+
+returns
+
+``` json
+{
+    "status": "success",
+    "tool": "oneshot"
+}
+```
+
 **PUT**
 
 Supports tool instances of currently only force_color and oneshot,
@@ -756,30 +795,11 @@ returns
 
 ### oneshot
 
-Fill all active virtuals with a single color in a defined envelope of timing
-
-Intended to allow integration of instantaneous game effects over all active virtual
-
-Repeated oneshot will overwrite the previous oneshot if has not finished
-
-- color: The color to which we wish to fill the virtual, any format supported, default is white
-- ramp: The time in ms over which to ramp the color from zero to full weight over the active  effect
-- hold: The time in ms to hold the color to full weight over the active effect
-- fade: The time in ms to fade the color from full weight to zero over the active effect
-
-If all values for ramp, hold and fade are zero, which is default, any
-exisiting oneshot will be cleared
-
-A bare call to onsshot will result in a hard disable of any existing
-oneshot that is executing
+Disables all oneshots on all virtuals. Returns success if at least one oneshot is found.
 
 ``` json
 {
-    "tool":"oneshot",
-    "color":"white",
-    "ramp":10,
-    "hold":200,
-    "fade":2000
+    "tool":"oneshot"
 }
 ```
 
@@ -795,6 +815,53 @@ returns
 ## /api/virtuals_tools/\<virtual_id\>
 
 Extensible support for general tools towards a specified virtual
+
+**POST**
+
+Supports addition of oneshots to all virtuals.
+
+### oneshot
+
+Fill the specified virtual with a single color in a defined envelope of timing
+
+Intended to allow integration of instantaneous game effects over any active virtual
+
+Repeated oneshot to a virtual will add an extra oneshot if the previous ones have not finished
+
+- color: The color to which we wish to fill the virtual, any format supported, default is white
+- ramp: The time in ms over which to ramp the color from zero to full weight over the active effect
+- hold: The time in ms to hold the color to full weight over the active effect
+- fade: The time in ms to fade the color from full weight to zero over the active effect
+- brightness: The brightness of the oneshot at the beginning. Defaults to 1.0 which is maximum brightness
+
+``` json
+{
+    "tool":"oneshot",
+    "color":"white",
+    "ramp":10,
+    "hold":200,
+    "fade":2000,
+    "brightness":1
+}
+```
+
+returns
+
+``` json
+{
+    "status": "success",
+    "tool": "oneshot"
+}
+```
+
+The virtual must be active or an error will be returned
+
+``` json
+{
+    "status": "failed",
+    "reason": "virtual falcon1 is not active"
+}
+```
 
 **PUT**
 
@@ -909,20 +976,7 @@ returns
 
 ### oneshot
 
-Fill the specified virtual with a single color in a defined envelope of timing
-
-Intended to allow integration of instantaneous game effects over any active virtual
-
-Repeated oneshot to a virtual will overwrite the previous oneshot if has not finished
-
-- color: The color to which we wish to fill the virtual, any format supported, default is white
-- ramp: The time in ms over which to ramp the color from zero to full weight over the active effect
-- hold: The time in ms to hold the color to full weight over the active effect
-- fade: The time in ms to fade the color from full weight to zero over the active effect
-
-If all values for ramp, hold and fade are zero, which is default, any exisiting oneshot will be cleared
-
-A bare call to onsshot will result in a hard disable of any existing oneshot that is executing
+Disables all oneshots on the specified virtual. Returns success if at least one oneshot is found.
 
 ``` json
 {
@@ -930,7 +984,8 @@ A bare call to onsshot will result in a hard disable of any existing oneshot tha
     "color":"white",
     "ramp":10,
     "hold":200,
-    "fade":2000
+    "fade":2000,
+    "brightness":1
 }
 ```
 
@@ -948,7 +1003,7 @@ The virtual must be active or an error will be returned
 ``` json
 {
     "status": "failed",
-    "reason": "virtual falcon1 is not active"
+    "reason": "oneshot was not found"
 }
 ```
 
@@ -1280,12 +1335,3 @@ Delete a song trigger
   "trigger_id": "Really Cool Song - 43764",
 }
 ```
-
-# WebSocket API
-
-In addition to the REST APIs LedFx has a WebSocket API for streaming
-realtime data. The primary use for this is for things like effect
-visualizations in the frontend.
-
-Will document this further once it is more well defined. The general
-structure will be event registration based.
